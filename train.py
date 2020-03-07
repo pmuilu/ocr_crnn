@@ -1,66 +1,74 @@
 import torch
 import torchvision.transforms as transforms
+import argparse
 from PIL import Image, ImageOps
 from utils import FixedHeightResize
 from model import OCRModel, ctc_collate
 from dataset import OCRDataset
-from test import test
+#from test import test
 
-IMAGE_HEIGHT = 32
+def train(ocr_dataset):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-fin_transforms = transforms.Compose([
-    transforms.Lambda(lambda x: ImageOps.invert(x)),
-    FixedHeightResize(IMAGE_HEIGHT),
-    transforms.ToTensor(),
-])
+    BATCH_SIZE = 32
+    N_EPOCH = 20
+    TEST_SIZE = int(len(ocr_dataset) * 0.3)
+    TRAIN_SIZE = len(ocr_dataset) - TEST_SIZE
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    X_train, X_test = torch.utils.data.random_split(ocr_dataset, 
+                                                    (TRAIN_SIZE, TEST_SIZE))
 
-ocr_dataset = OCRDataset('../ocr/ocr_data/fin-13k/train/', transform=fin_transforms)
+    train_loader = torch.utils.data.DataLoader(X_train, batch_size = BATCH_SIZE, 
+                                            shuffle = True, 
+                                            collate_fn = ctc_collate)
 
-BATCH_SIZE = 32
-N_EPOCH = 20
-TEST_SIZE = int(len(ocr_dataset) * 0.3)
-TRAIN_SIZE = len(ocr_dataset) - TEST_SIZE
+    test_loader = torch.utils.data.DataLoader(X_test, batch_size = BATCH_SIZE, 
+                                            shuffle = False, 
+                                            collate_fn = ctc_collate)
 
-X_train, X_test = torch.utils.data.random_split(ocr_dataset, 
-                                                (TRAIN_SIZE, TEST_SIZE))
+    model = OCRModel(num_classes=ocr_dataset.get_num_classes())
+    model.to(device)
 
-train_loader = torch.utils.data.DataLoader(X_train, batch_size = BATCH_SIZE, 
-                                           shuffle = True, 
-                                           collate_fn = ctc_collate)
+    BLANK = ocr_dataset.get_num_classes()-1
 
-test_loader = torch.utils.data.DataLoader(X_test, batch_size = BATCH_SIZE, 
-                                          shuffle = False, 
-                                          collate_fn = ctc_collate)
+    criterion = torch.nn.CTCLoss(blank=BLANK, zero_infinity=False)
 
-model = OCRModel(num_classes=ocr_dataset.get_num_classes())
-model.to(device)
+    #optimizer = torch.optim.SGD(model.parameters(), lr=1e-5, momentum=0.9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-BLANK = ocr_dataset.get_num_classes()-1
+    for epoch in range(N_EPOCH):
+        total_loss = 0
 
-criterion = torch.nn.CTCLoss(blank=BLANK, zero_infinity=False)
+        for i, ((x, input_lengths),(y,target_lengths)) in enumerate(train_loader):
+            x, y = x.to(device), y.to(device)
+            #torchvision.utils.save_image(x, f"out{i}.png", nrow=1)
+            outputs = model(x)
 
-#optimizer = torch.optim.SGD(model.parameters(), lr=1e-5, momentum=0.9)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-for epoch in range(N_EPOCH):
-    total_loss = 0
-
-    for i, ((x, input_lengths),(y,target_lengths)) in enumerate(train_loader):
-        x, y = x.to(device), y.to(device)
-        #torchvision.utils.save_image(x, f"out{i}.png", nrow=1)
-        outputs = model(x)
-
-        loss = criterion(outputs, y, input_lengths=input_lengths,       # outputs = (T, N, C) T=input len, N=batch size, C = nbr of classes
-                         target_lengths=target_lengths)
+            loss = criterion(outputs, y, input_lengths=input_lengths,       # outputs = (T, N, C) T=input len, N=batch size, C = nbr of classes
+                            target_lengths=target_lengths)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
         
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
+        print('epoch: %d, loss: %.4f' % ((epoch+1), total_loss))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='OCR train')
+    parser.add_argument('dataset', type=str, help='dataset location')
+    parser.add_argument('--max-height', type=int, help='max image height', default=32)
+
+    args = parser.parse_args()
     
-    print('epoch: %d, loss: %.4f' % ((epoch+1), total_loss))
+    fin_transforms = transforms.Compose([
+        transforms.Lambda(lambda x: ImageOps.invert(x)),
+        FixedHeightResize(args.max_height),
+        transforms.ToTensor(),
+    ])
 
+    ocr_dataset = OCRDataset(args.dataset, transform=fin_transforms)
 
-test(model, ocr_dataset)
+    train(ocr_dataset)
+    test(model, ocr_dataset)
