@@ -11,12 +11,14 @@ def char_err_rate(s1, s2):
 
     return dist / len(s2)
 
-def test(model, ocr_dataset):
+def test(model, test_loader, ocr_dataset):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     ratios = []
     lv_ratios = []
 
     BLANK = ocr_dataset.get_num_classes()-1
-    
+
     with torch.no_grad():
         for ((x, input_lengths),(y,target_lengths)) in test_loader:
             print("Run eval")

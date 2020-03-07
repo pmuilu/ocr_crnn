@@ -5,7 +5,7 @@ from PIL import Image, ImageOps
 from utils import FixedHeightResize
 from model import OCRModel, ctc_collate
 from dataset import OCRDataset
-#from test import test
+from test import test
 
 def train(ocr_dataset):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,6 +54,8 @@ def train(ocr_dataset):
         
         print('epoch: %d, loss: %.4f' % ((epoch+1), total_loss))
 
+    return model, test_loader
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='OCR train')
@@ -70,5 +72,5 @@ if __name__ == "__main__":
 
     ocr_dataset = OCRDataset(args.dataset, transform=fin_transforms)
 
-    train(ocr_dataset)
-    test(model, ocr_dataset)
+    model, test_loader = train(ocr_dataset)
+    test(model, test_loader, ocr_dataset)
