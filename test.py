@@ -2,6 +2,7 @@ import torch
 import Levenshtein
 from difflib import SequenceMatcher
 from ctcdecode import CTCBeamDecoder
+import numpy as np
 
 def char_err_rate(s1, s2):
     s1 = s1.replace(' ', '')
